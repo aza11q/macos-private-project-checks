@@ -41,6 +41,7 @@ jobs:
           SOURCE_COMMIT: ${{ inputs.source_commit }}
           PRIVATE_SOURCE_REPO: ${{ secrets.PRIVATE_SOURCE_REPO }}
           PRIVATE_SOURCE_KEY: ${{ secrets.PRIVATE_SOURCE_KEY }}
+          PUBLIC_METADATA_TOKEN: ${{ github.token }}
       - name: Install private project dependencies
         run: python controller.py install
         env:

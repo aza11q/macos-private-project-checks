@@ -53,10 +53,14 @@ def checkout(commit):
     key.chmod(0o600)
     known = BUILD_ROOT / 'known-hosts'
     try:
-        with urllib.request.urlopen('https://api.github.com/meta', timeout=45) as response:
+        request = urllib.request.Request('https://api.github.com/meta', headers={
+            'Authorization': 'Bearer ' + os.environ['PUBLIC_METADATA_TOKEN'],
+            'Accept': 'application/vnd.github+json', 'User-Agent': 'native-project-checks'})
+        with urllib.request.urlopen(request, timeout=45) as response:
             host = json.load(response)
         known.write_text(''.join('github.com ' + k + '\n' for k in host['ssh_keys']), encoding='utf-8')
-        env = {k: v for k, v in os.environ.items() if k not in ('PRIVATE_SOURCE_KEY', 'PRIVATE_SOURCE_REPO')}
+        env = {k: v for k, v in os.environ.items()
+               if k not in ('PRIVATE_SOURCE_KEY', 'PRIVATE_SOURCE_REPO', 'PUBLIC_METADATA_TOKEN')}
         env['GIT_SSH_COMMAND'] = (f'ssh -i {shlex.quote(str(key))} -o IdentitiesOnly=yes -o BatchMode=yes '
             f'-o StrictHostKeyChecking=yes -o UserKnownHostsFile={shlex.quote(str(known))}')
         SOURCE.mkdir()
