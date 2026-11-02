@@ -7,6 +7,18 @@ on:
         options: [arm64, intel]
         default: arm64
         required: true
+      arm_runner:
+        type: choice
+        options: [macos-15, macos-26]
+        default: macos-15
+        description: Standard Apple Silicon runner image
+        required: true
+      command_slot:
+        type: choice
+        options: [primary, secondary]
+        default: primary
+        description: Independent private command slot
+        required: true
       source_commit:
         type: string
         description: Exact private source revision
@@ -16,7 +28,7 @@ permissions:
 jobs:
   native:
     if: github.event.repository.private == false
-    runs-on: ${{ inputs.architecture == 'arm64' && 'macos-15' || 'macos-15-intel' }}
+    runs-on: ${{ inputs.architecture == 'arm64' && (inputs.arm_runner || 'macos-15') || 'macos-15-intel' }}
     timeout-minutes: 45
     env:
       MACOSX_DEPLOYMENT_TARGET: '14.0'
@@ -50,7 +62,7 @@ jobs:
       - name: Execute private project check
         run: python controller.py run
         env:
-          PRIVATE_COMMAND: ${{ secrets.PRIVATE_COMMAND }}
+          PRIVATE_COMMAND: ${{ secrets[inputs.command_slot == 'secondary' && 'PRIVATE_COMMAND_SECONDARY' || 'PRIVATE_COMMAND'] }}
       - name: Encrypt result files and detailed logs
         id: encrypt
         if: always() && steps.tools.conclusion == 'success'

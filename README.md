@@ -16,6 +16,11 @@ runner files. Only an age-encrypted result archive is uploaded. The age public
 recipient is a repository variable; its private decryption key remains on the
 owner's computer and is never uploaded to GitHub.
 
+Manual dispatch can select the standard macOS 15 or macOS 26 Apple Silicon
+image. Intel checks use the standard macOS 15 Intel image. The optional secondary
+command slot uses a separate PRIVATE_COMMAND_SECONDARY secret so another command
+can run without changing the primary command of an already queued check.
+
 The workflow, controller, job status, architecture and source commit hash are
 public. The owner must trust everyone who can modify this controller or the
 workflow. Application files and detailed logs are not committed to this public
