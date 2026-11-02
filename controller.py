@@ -1,5 +1,6 @@
 """Public build instructions; private project data stays in encrypted results."""
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -49,7 +50,7 @@ def checkout(commit):
     if not re.fullmatch(r'git@github\.com:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\.git', repository):
         raise ValueError('Expected a GitHub SSH repository')
     key = BUILD_ROOT / 'temporary-readonly-key'
-    key.write_text(os.environ['PRIVATE_SOURCE_KEY'], encoding='utf-8')
+    key.write_bytes(base64.b64decode(os.environ['PRIVATE_SOURCE_KEY'], validate=True))
     key.chmod(0o600)
     known = BUILD_ROOT / 'known-hosts'
     try:
