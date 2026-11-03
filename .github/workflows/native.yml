@@ -69,6 +69,7 @@ jobs:
         run: python controller.py encrypt
         env:
           RESULT_RECIPIENT: ${{ vars.RESULT_RECIPIENT }}
+          TRANSFER_RECIPIENT: ${{ secrets.TRANSFER_RECIPIENT }}
           PRIVATE_RESULT_PATHS: ${{ secrets.PRIVATE_RESULT_PATHS }}
       - name: Preserve encrypted results for one day
         if: always() && steps.encrypt.conclusion == 'success'

@@ -30,3 +30,11 @@ References:
 - https://docs.github.com/en/actions/reference/runners/github-hosted-runners
 - https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys
 - https://github.com/FiloSottile/age
+# Optional cross-run transfer
+
+`TRANSFER_RECIPIENT` is an optional age **public** recipient in repository secrets.
+When configured, result encryption also targets that recipient, while retaining
+the owner's `RESULT_RECIPIENT`. This allows a short-lived transfer identity to
+read a preserved encrypted input in a later native job. The owner's private
+decryption key is never sent to a runner. Leave the secret unset for owner-only
+results, and remove it after the transfer checks finish.

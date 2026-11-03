@@ -109,6 +109,13 @@ def encrypt():
     recipient = os.environ['RESULT_RECIPIENT']
     if not re.fullmatch(r'age1[a-z0-9]+', recipient):
         raise ValueError('An age public recipient is required')
+    recipients = [recipient]
+    transfer = os.environ.get('TRANSFER_RECIPIENT', '')
+    if transfer:
+        if not re.fullmatch(r'age1[a-z0-9]+', transfer):
+            raise ValueError('The optional transfer recipient must be an age public recipient')
+        if transfer not in recipients:
+            recipients.append(transfer)
     archive = BUILD_ROOT / 'private-results.tar.gz'
     names = json.loads(os.environ['PRIVATE_RESULT_PATHS'])
     if not isinstance(names, list) or any(not isinstance(x, str) for x in names):
@@ -122,7 +129,8 @@ def encrypt():
     output = Path.cwd() / 'encrypted-output/native-results.age'
     output.parent.mkdir(exist_ok=True)
     with (LOGS / 'encryption.log').open('ab') as stream:
-        subprocess.run([str(AGE), '-r', recipient, '-o', str(output), str(archive)],
+        recipient_args = [argument for key in recipients for argument in ('-r', key)]
+        subprocess.run([str(AGE), *recipient_args, '-o', str(output), str(archive)],
                        check=True, stdout=stream, stderr=stream)
 
 
