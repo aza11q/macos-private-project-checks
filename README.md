@@ -38,3 +38,13 @@ the owner's `RESULT_RECIPIENT`. This allows a short-lived transfer identity to
 read a preserved encrypted input in a later native job. The owner's private
 decryption key is never sent to a runner. Leave the secret unset for owner-only
 results, and remove it after the transfer checks finish.
+
+`PRIVATE_INPUTS` optionally contains a JSON list of `artifact_id`, `run_id`,
+`sha256`, and `transfer_identity`. Only artifacts in the current public helper
+repository can be requested. Each ZIP digest and originating run are checked,
+then the authenticated payload is decrypted into `native-inputs/encrypted/N`.
+Use only a short-lived transfer identity; never the owner's result identity.
+The temporary identity file is deleted before project commands run. The job's
+artifact-read token is confined to the controller step and is not forwarded to
+the storage redirect or project command. An unset input list preserves the
+previous no-input behavior.

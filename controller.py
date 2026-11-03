@@ -7,9 +7,13 @@ import os
 from pathlib import Path
 import re
 import shlex
+import shutil
 import subprocess
 import tarfile
 import urllib.request
+import urllib.error
+import urllib.parse
+import zipfile
 
 BUILD_ROOT = Path(os.environ['RUNNER_TEMP']) / 'native-private-build'
 SOURCE = BUILD_ROOT / 'source'
@@ -105,6 +109,93 @@ def run_private():
     return result
 
 
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, message, headers, newurl):
+        return None
+
+
+def import_inputs():
+    """Read authenticated artifacts from this public repo, using transfer keys."""
+    inputs = json.loads(os.environ.get('PRIVATE_INPUTS') or '[]')
+    if not isinstance(inputs, list) or len(inputs) > 8:
+        raise ValueError('Encrypted inputs must be a bounded JSON list')
+    if not inputs:
+        return
+    repository = os.environ['GITHUB_REPOSITORY']
+    if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository):
+        raise ValueError('Expected the current GitHub repository')
+    opener = urllib.request.build_opener(NoRedirect())
+    headers = {'Authorization': 'Bearer ' + os.environ['PUBLIC_ARTIFACT_TOKEN'],
+               'Accept': 'application/vnd.github+json', 'User-Agent': 'native-project-checks'}
+    for index, item in enumerate(inputs):
+        if not isinstance(item, dict):
+            raise ValueError('Expected encrypted input metadata')
+        identifier, run_id, expected = item.get('artifact_id'), item.get('run_id'), item.get('sha256')
+        if (type(identifier) is not int or identifier <= 0 or type(run_id) is not int or run_id <= 0 or
+                not isinstance(expected, str) or not re.fullmatch('[0-9a-f]{64}', expected)):
+            raise ValueError('Exact encrypted artifact and run identity are required')
+        identity = item.get('transfer_identity', '')
+        if not isinstance(identity, str) or len(identity) > 4096:
+            raise ValueError('Expected a short-lived age transfer identity')
+        lines = [line for line in identity.splitlines() if line and not line.startswith('#')]
+        if len(lines) != 1 or not re.fullmatch(r'AGE-SECRET-KEY-1[0-9A-Z]+', lines[0]):
+            raise ValueError('Expected a short-lived age transfer identity')
+        endpoint = f'https://api.github.com/repos/{repository}/actions/artifacts/{identifier}'
+        with opener.open(urllib.request.Request(endpoint, headers=headers), timeout=60) as response:
+            metadata = json.load(response)
+        if (metadata.get('id') != identifier or metadata.get('expired') is not False or
+                metadata.get('workflow_run', {}).get('id') != run_id or
+                metadata.get('digest') != 'sha256:' + expected):
+            raise ValueError('Encrypted artifact provenance differs')
+        try:
+            opener.open(urllib.request.Request(endpoint + '/zip', headers=headers), timeout=60)
+        except urllib.error.HTTPError as redirect:
+            if redirect.code != 302 or not redirect.headers.get('Location'):
+                raise
+            location = redirect.headers['Location']
+        else:
+            raise ValueError('Expected a temporary artifact download redirect')
+        parsed = urllib.parse.urlsplit(location)
+        if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password:
+            raise ValueError('Expected an HTTPS artifact storage location')
+        folder = source_path('native-inputs/encrypted/' + str(index))
+        folder.mkdir(parents=True, exist_ok=False)
+        packed_path, encrypted = folder / 'input.zip', folder / 'native-results.age'
+        digest, count = hashlib.sha256(), 0
+        # Create a fresh unauthenticated storage request. Never forward the
+        # GitHub job token through the cross-host redirect.
+        request = urllib.request.Request(location, headers={'User-Agent': 'native-project-checks'})
+        with urllib.request.urlopen(request, timeout=60) as response, packed_path.open('xb') as output:
+            while block := response.read(1024 * 1024):
+                count += len(block)
+                if count > 2 * 1024 ** 3:
+                    raise ValueError('Encrypted input is too large')
+                digest.update(block)
+                output.write(block)
+        if digest.hexdigest() != expected:
+            raise ValueError('Encrypted input checksum differs')
+        with zipfile.ZipFile(packed_path) as archive:
+            if archive.namelist() != ['native-results.age']:
+                raise ValueError('Unexpected encrypted input ZIP members')
+            with archive.open('native-results.age') as source, encrypted.open('xb') as output:
+                shutil.copyfileobj(source, output)
+        key = BUILD_ROOT / ('temporary-transfer-identity-' + str(index))
+        try:
+            with key.open('x', encoding='ascii') as stream:
+                stream.write(identity.rstrip() + '\n')
+            key.chmod(0o600)
+            status = logged([str(AGE), '-d', '-i', str(key), '-o', str(folder / 'private-results.tar.gz'),
+                             str(encrypted)], 'input-decryption.log')
+            if status:
+                raise RuntimeError('Encrypted input authentication failed')
+        finally:
+            key.unlink(missing_ok=True)
+        packed_path.unlink()
+        encrypted.unlink()
+        (folder / 'INPUT.json').write_text(json.dumps({'artifact_id': identifier, 'run_id': run_id,
+            'zip_sha256': expected, 'owner_private_key_used': False}, indent=2), encoding='utf-8')
+
+
 def encrypt():
     recipient = os.environ['RESULT_RECIPIENT']
     if not re.fullmatch(r'age1[a-z0-9]+', recipient):
@@ -136,7 +227,7 @@ def encrypt():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('operation', choices=('tools', 'checkout', 'install', 'run', 'encrypt'))
+    parser.add_argument('operation', choices=('tools', 'checkout', 'install', 'inputs', 'run', 'encrypt'))
     parser.add_argument('--architecture', choices=('arm64', 'intel'))
     parser.add_argument('--commit')
     args = parser.parse_args()
@@ -148,6 +239,8 @@ def main():
             checkout(args.commit)
         elif args.operation == 'install':
             return install()
+        elif args.operation == 'inputs':
+            import_inputs()
         elif args.operation == 'run':
             return run_private()
         else:

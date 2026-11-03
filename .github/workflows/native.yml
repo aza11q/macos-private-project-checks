@@ -25,6 +25,7 @@ on:
         required: true
 permissions:
   contents: read
+  actions: read
 jobs:
   native:
     if: github.event.repository.private == false
@@ -59,6 +60,11 @@ jobs:
         env:
           PRIVATE_REQUIREMENTS: ${{ secrets.PRIVATE_REQUIREMENTS }}
           PRIVATE_WHEEL_LINKS: ${{ secrets.PRIVATE_WHEEL_LINKS }}
+      - name: Import encrypted input artifacts
+        run: python controller.py inputs
+        env:
+          PRIVATE_INPUTS: ${{ secrets.PRIVATE_INPUTS }}
+          PUBLIC_ARTIFACT_TOKEN: ${{ github.token }}
       - name: Execute private project check
         run: python controller.py run
         env:
