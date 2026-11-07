@@ -1,0 +1,63 @@
+name: Encrypted native security checks
+on:
+  workflow_dispatch:
+    inputs:
+      architecture:
+        type: choice
+        options: [arm64, intel]
+        required: true
+      source_commit:
+        type: string
+        description: Exact private source revision
+        required: true
+permissions:
+  contents: read
+  actions: read
+jobs:
+  native:
+    if: github.event.repository.private == false
+    runs-on: ${{ inputs.architecture == 'arm64' && 'macos-15' || 'macos-15-intel' }}
+    timeout-minutes: 45
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '14.0'
+      OPENBLAS_NUM_THREADS: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.10'
+          architecture: ${{ inputs.architecture == 'arm64' && 'arm64' || 'x64' }}
+      - name: Verify encryption tool
+        id: tools
+        run: python controller.py tools --architecture "$ARCHITECTURE"
+        env:
+          ARCHITECTURE: ${{ inputs.architecture }}
+      - name: Fetch reviewed private source with the existing read-only key
+        run: python controller.py checkout --commit "$SOURCE_COMMIT"
+        env:
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          PRIVATE_SOURCE_REPO: ${{ secrets.PRIVATE_SOURCE_REPO }}
+          PRIVATE_SOURCE_KEY: ${{ secrets.PRIVATE_SOURCE_KEY }}
+          PUBLIC_METADATA_TOKEN: ${{ github.token }}
+      - name: Execute private security check
+        run: python controller.py run
+        env:
+          PRIVATE_COMMAND: ${{ secrets.PRIVATE_SECURITY_COMMAND }}
+      - name: Encrypt private results and detailed logs
+        id: encrypt
+        if: always() && steps.tools.conclusion == 'success'
+        run: python controller.py encrypt
+        env:
+          RESULT_RECIPIENT: ${{ vars.RESULT_RECIPIENT }}
+          PRIVATE_RESULT_PATHS: ${{ secrets.PRIVATE_SECURITY_RESULT_PATHS }}
+      - name: Preserve encrypted results
+        if: always() && steps.encrypt.conclusion == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: encrypted-security-results-${{ inputs.architecture }}
+          path: encrypted-output/native-results.age
+          retention-days: 1
+          if-no-files-found: error
