@@ -33,8 +33,16 @@ def logged(command, name, *, cwd=None, env=None):
 def tools(architecture):
     target, expected = DIGESTS[architecture]
     url = f'https://github.com/FiloSottile/age/releases/download/v1.3.2/age-v1.3.2-darwin-{target}.tar.gz'
-    with urllib.request.urlopen(url, timeout=60) as response:
-        data = response.read()
+    AGE.parent.mkdir(parents=True, exist_ok=True)
+    archive = AGE.parent / 'verified-age-download.tar.gz'
+    with (LOGS / 'encryption-tool-download.log').open('ab') as log:
+        result = subprocess.run(['curl', '--fail', '--location', '--retry', '3',
+            '--retry-delay', '2', '--connect-timeout', '20', '--max-time', '120',
+            '--output', str(archive), url], stdout=log, stderr=log)
+    if result.returncode:
+        print('Public encryption-tool download failed; curl exit=' + str(result.returncode))
+        raise RuntimeError('Official encryption tool download failed')
+    data = archive.read_bytes()
     if hashlib.sha256(data).hexdigest() != expected:
         raise ValueError('Encryption tool checksum differs')
     import io
@@ -250,6 +258,8 @@ def main():
     except Exception as error:
         # Never put private paths, command arguments or exceptions in public logs.
         (LOGS / 'controller-error.txt').write_text(repr(error), encoding='utf-8')
+        if args.operation == 'tools':
+            print('Public bootstrap failure type=' + type(error).__name__ + '; HTTP=' + str(getattr(error, 'code', 'none')))
         print('Operation failed; details are kept in the private result bundle.')
         return 1
 
